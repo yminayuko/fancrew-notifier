@@ -25,6 +25,28 @@ class AvailabilityTests(unittest.TestCase):
         with self.assertRaises(ValueError): key_for('https://example.com/detail2/1')
         self.assertNotEqual(key_for('https://www.fancrew.jp/detail2/1?classicFlg=true'),key_for('https://www.fancrew.jp/detail2/1?classicFlg=false'))
 
+    def test_detail_templates_and_cancel_waiting(self):
+        from unittest.mock import MagicMock, patch
+        import fancrew_notifier as app
+        card={'title':'魁力屋 東久留米店', 'url':'https://www.fancrew.jp/detail2/1?classicFlg=false', 'conditions':'1名'}
+        for heading, text, disabled, expected in (
+            ('モニタールール', 'モニタールール', False, 'open'),
+            ('来店・応募条件', '来店・応募条件', False, 'open'),
+            ('来店・応募条件', '現在当選枠が満員・応募条件などのため、応募ができません。', True, 'closed'),
+            ('来店・応募条件', 'キャンセル待ちでのご応募が可能です。現在当選枠が満員となっています。', False, 'closed'),
+        ):
+            with self.subTest(heading=heading, expected=expected):
+                page=MagicMock()
+                def find_heading(role, name, **kwargs):
+                    self.assertEqual(role, 'heading')
+                    if not (name == heading or hasattr(name,'fullmatch') and name.fullmatch(heading)):
+                        raise TimeoutError('The requested heading does not exist in this template')
+                    return MagicMock()
+                page.get_by_role.side_effect=find_heading
+                page.evaluate.return_value=self.control(disabled)
+                with patch.object(app,'navigate'), patch.object(app,'check_block',return_value=text):
+                    self.assertEqual(app.inspect(page,card)['status'],expected)
+
 
 class IphoneNotificationTests(unittest.TestCase):
     def test_japanese_payload_and_link(self):
