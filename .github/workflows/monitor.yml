@@ -1,0 +1,72 @@
+name: Fancrew cloud monitor
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'monitor / test-notification / resume'
+        required: true
+        default: monitor
+        type: choice
+        options:
+          - monitor
+          - test-notification
+          - resume
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: fancrew-monitor
+  cancel-in-progress: false
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      GH_TOKEN: ${{ github.token }}
+      MODE: ${{ inputs.mode || 'monitor' }}
+    steps:
+      - name: Check notification configuration
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo 'NTFY_TOPIC is not configured. Add the repository secret before starting monitoring.'
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Unit tests
+        run: python -m unittest -v test_notifier.py
+      - name: Restore previous state
+        id: restore
+        run: python cloud_state.py
+      - name: Run monitor or notification test
+        run: python cloud_run.py
+      - name: Preserve state
+        if: always() && steps.restore.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fancrew-state
+          path: |
+            state.json
+            STOPPED
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fancrew-diagnostics
+          path: |
+            monitor.log
+            available.html
+          if-no-files-found: ignore
+          retention-days: 7

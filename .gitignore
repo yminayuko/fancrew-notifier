@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+notification.json
+state.json
+state.tmp
+monitor.log
+monitor.lock
+available.html
+STOPPED
