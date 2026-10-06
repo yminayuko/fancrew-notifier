@@ -183,9 +183,10 @@ def collect_cards(page, max_pages):
 def inspect(page, card):
     navigate(page, card['url'])
     page.locator('h1').wait_for(timeout=60000)
-    # h1 can appear before rules/actions. Wait for the rule section as well.
-    page.get_by_role('heading', name='モニタールール', exact=True).wait_for(timeout=60000)
-    page.wait_for_function("() => [...document.querySelectorAll('button,a')].some(e => /応募|募集|当選枠/.test(e.innerText)) || /募集終了|当選枠.*埋ま/.test(document.body.innerText)", timeout=30000)
+    # Classic and modern details use different condition headings. h1 alone
+    # appears before the application's conditions and availability controls.
+    page.get_by_role('heading', name=re.compile(r'^(?:モニタールール|来店・応募条件)$')).wait_for(timeout=60000)
+    page.wait_for_function("() => [...document.querySelectorAll('button,a,[role=button]')].some(e => /^(?:モニターに応募する|このモニターに応募する|すぐに応募する|応募する)$/.test(e.innerText.trim()) && e.getClientRects().length) || /募集終了|当選枠.{0,12}(?:埋ま|満)|このモニターに応募することはできません/.test(document.body.innerText)", timeout=30000)
     text = check_block(page)
     status = classify(text, page.evaluate(CONTROL_JS))
     return {k: card[k] for k in ('title', 'url', 'conditions')} | {'status':status, 'checked_at':time.strftime('%Y-%m-%d %H:%M:%S')}
@@ -251,7 +252,7 @@ def main():
                             raise
                         except Exception as e:
                             errors += 1
-                            logging.warning('取得失敗: %s (%s)', card['title'], type(e).__name__)
+                            logging.warning('取得失敗: %s %s (%s: %s)', card['title'], card['url'], type(e).__name__, str(e))
                             if errors >= 5:
                                 raise RuntimeError('詳細ページが繰り返し失敗しました。')
                         time.sleep(2 + random.random())
