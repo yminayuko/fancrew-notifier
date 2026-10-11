@@ -94,6 +94,32 @@ class IphoneNotificationTests(unittest.TestCase):
 
 
 class CloudTests(unittest.TestCase):
+    def test_search_timeout_recovers_once(self):
+        from unittest.mock import MagicMock, patch
+        import fancrew_notifier as app
+        cards={'a':{'title':'A'}}
+        page=MagicMock()
+        with patch.object(app,'collect_cards',side_effect=[TimeoutError('slow search'),cards]) as collect, patch.object(app,'check_block') as check, patch.object(app.time,'sleep') as delay:
+            self.assertEqual(app.collect_cards_with_retry(page,100,TimeoutError),cards)
+            self.assertEqual(collect.call_count,2)
+            check.assert_called_once_with(page)
+            delay.assert_called_once_with(30)
+
+    def test_search_retry_is_bounded_and_blocks_stop(self):
+        from unittest.mock import MagicMock, patch
+        import fancrew_notifier as app
+        for error, block, expected_calls in (
+            (TimeoutError('still slow'), None, 2),
+            (app.StopMonitoring('access restriction'), None, 1),
+            (TimeoutError('slow'), app.StopMonitoring('human check'), 1),
+            (RuntimeError('incorrect Tokyo filter'), None, 1),
+        ):
+            with self.subTest(error=type(error).__name__, block=block):
+                with patch.object(app,'collect_cards',side_effect=error) as collect, patch.object(app,'check_block',side_effect=block), patch.object(app.time,'sleep'):
+                    with self.assertRaises(type(block or error)):
+                        app.collect_cards_with_retry(MagicMock(),100,TimeoutError)
+                    self.assertEqual(collect.call_count,expected_calls)
+
     def test_chunks_resume_and_wrap(self):
         from fancrew_notifier import select_chunk
         cards={str(i):{} for i in range(5)}
