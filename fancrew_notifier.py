@@ -180,6 +180,18 @@ def collect_cards(page, max_pages):
         check_block(page)
     return cards
 
+def collect_cards_with_retry(page, max_pages, timeout_error):
+    """Retry a search timeout once; never retry a site access restriction."""
+    try:
+        return collect_cards(page, max_pages)
+    except timeout_error:
+        # Check the rendered page before retrying. Human checks/access blocks
+        # still stop monitoring immediately, without another request.
+        check_block(page)
+        logging.warning('検索結果の読み込みがタイムアウトしました。30秒後に1回だけ再試行します。')
+        time.sleep(30)
+        return collect_cards(page, max_pages)
+
 def inspect(page, card):
     navigate(page, card['url'])
     page.locator('h1').wait_for(timeout=60000)
@@ -226,7 +238,7 @@ def main():
         parser.error('別の監視プログラムが実行中です。')
     state_path = ROOT/'state.json'
     state = json.loads(state_path.read_text(encoding='utf-8')) if state_path.exists() else {'initialized':False,'items':{}}
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=not args.headed)
         context = browser.new_context(locale='ja-JP')
@@ -236,7 +248,7 @@ def main():
         try:
             while True:
                 try:
-                    cards = collect_cards(search, args.max_pages)
+                    cards = collect_cards_with_retry(search, args.max_pages, PlaywrightTimeoutError)
                     selected, reached_end = select_chunk(cards, state.get('cursor',''), args.max_details)
                     logging.info('東京都・一人：全%s案件中、今回%s案件を確認します', len(cards), len(selected))
                     observed = {}
@@ -287,10 +299,10 @@ def main():
                     return 2
                 except Exception as e:
                     failures += 1
-                    logging.error('巡回失敗（状態は保存しません）: %s',e)
+                    logging.exception('巡回失敗（状態は保存しません）: %s',e)
                     if failures >= 3 or args.once:
                         try:
-                            notify('ファンくる監視エラー','取得または通知に失敗しました。実行ログを確認してください。')
+                            notify('ファンくる監視エラー','今回の取得または通知に失敗しました。監視履歴を保持し、次の定期実行で再確認します。詳細は実行ログを確認してください。')
                         except Exception:
                             logging.error('エラー通知も送信できませんでした。')
                         return 1
