@@ -6,6 +6,18 @@ class AvailabilityTests(unittest.TestCase):
         return [{'text':'モニターに応募する','visible':True,'disabled':disabled}]
     def test_open(self):
         self.assertEqual(classify('モニタールール',self.control()),'open')
+    def test_login_application_label(self):
+        from fancrew_notifier import APPLICATION_LABELS
+        for label in APPLICATION_LABELS:
+            with self.subTest(label=label):
+                control=[{'text':label,'visible':True,'disabled':False}]
+                self.assertEqual(classify('モニタールール',control),'open')
+                self.assertEqual(classify('現在当選枠が満員となっています。',control),'closed')
+                control[0]['disabled']=True
+                self.assertEqual(classify('モニタールール',control),'unknown')
+                control[0].update(disabled=False,visible=False)
+                self.assertEqual(classify('モニタールール',control),'unknown')
+        self.assertEqual(classify('会員登録', [{'text':'会員登録','visible':True,'disabled':False}]),'unknown')
     def test_closed_overrides_button(self):
         self.assertEqual(classify('当選枠がすでに埋まっているモニターです。',self.control()),'closed')
     def test_disabled_and_unknown_do_not_notify(self):
