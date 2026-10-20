@@ -20,6 +20,9 @@ SEARCH_URL = ('https://www.fancrew.jp/search/result/1?areaId='
               '121%2C122%2C123%2C124%2C125%2C126%2C127%2C128%2C129%2C130%2C131%2C132%2C133%2C134%2C135%2C136%2C137%2C138%2C139%2C140%2C141%2C142%2C143%2C145%2C146%2C147%2C148%2C149&onlySoloVisitFlg=true')
 CLOSED = re.compile(r'当選枠.{0,12}(?:埋ま|満)|募集.{0,8}(?:終了|停止)|応募.{0,8}(?:終了|停止)|満員|現在.{0,8}応募できません')
 BLOCKED = re.compile(r'verify you are human|checking your browser|unusual traffic|アクセスが制限|ロボットではない|アクセスが拒否', re.I)
+APPLICATION_LABELS = ('モニターに応募する', 'このモニターに応募する',
+                      'すぐに応募する', '応募する', 'ログイン・会員登録して応募する')
+APPLICATION_PATTERN = '^(?:' + '|'.join(APPLICATION_LABELS) + ')$'
 
 class StopMonitoring(Exception):
     pass
@@ -36,7 +39,7 @@ def classify(text, controls):
     if CLOSED.search(text):
         return 'closed'
     for c in controls:
-        if re.fullmatch(r'(?:モニターに応募する|このモニターに応募する|すぐに応募する|応募する)', c['text'].strip()):
+        if re.fullmatch(APPLICATION_PATTERN, c['text'].strip()):
             if c['visible'] and not c['disabled']:
                 return 'open'
     return 'unknown'
@@ -144,6 +147,9 @@ CONTROL_JS = '''() => [...document.querySelectorAll('button,a,[role="button"]')]
     text:e.innerText.trim(), visible:!!(e.getClientRects().length),
     disabled:!!e.disabled || e.getAttribute('aria-disabled') === 'true'
 }))'''
+DETAIL_READY_JS = '''pattern => [...document.querySelectorAll('button,a,[role="button"]')]
+    .some(e => new RegExp(pattern).test(e.innerText.trim()) && e.getClientRects().length)
+    || /募集終了|当選枠.{0,12}(?:埋ま|満)|このモニターに応募することはできません/.test(document.body.innerText)'''
 
 def collect_cards(page, max_pages):
     navigate(page, SEARCH_URL)
@@ -198,7 +204,7 @@ def inspect(page, card):
     # Classic and modern details use different condition headings. h1 alone
     # appears before the application's conditions and availability controls.
     page.get_by_role('heading', name=re.compile(r'^(?:モニタールール|来店・応募条件)$')).wait_for(timeout=60000)
-    page.wait_for_function("() => [...document.querySelectorAll('button,a,[role=button]')].some(e => /^(?:モニターに応募する|このモニターに応募する|すぐに応募する|応募する)$/.test(e.innerText.trim()) && e.getClientRects().length) || /募集終了|当選枠.{0,12}(?:埋ま|満)|このモニターに応募することはできません/.test(document.body.innerText)", timeout=30000)
+    page.wait_for_function(DETAIL_READY_JS, arg=APPLICATION_PATTERN, timeout=30000)
     text = check_block(page)
     status = classify(text, page.evaluate(CONTROL_JS))
     return {k: card[k] for k in ('title', 'url', 'conditions')} | {'status':status, 'checked_at':time.strftime('%Y-%m-%d %H:%M:%S')}
